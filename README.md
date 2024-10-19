@@ -5,7 +5,7 @@ sends a message using Telegram if it did.
 
 ## Setup
 
-Python 3 is required.
+Python 3 and the requests library (`sudo apt install python3-requests`) are required.
 
 To be able to send Telegram messages, rename `.env.template` to `.env` and add 
 the Telegram bot token and chat id following the instructions in the file.
@@ -29,7 +29,3 @@ Use cron to run periodic checks:
 ```sh
 0 * * * * /path/to/urlcheker.py https://a.url
 ```
-
-## Known issues
-
-- It doesn't work with sites that return a compressed response. It fails with: ` UnicodeDecodeError: 'utf-8' codec can't decode byte ...`. 
