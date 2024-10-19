@@ -12,10 +12,12 @@ SCRIPT_DIR = Path(__file__).absolute().parent
 
 
 def load_env_vars():
-    env_file_path = Path(__file__).absolute().parent / ".env"
+    env_file_path = SCRIPT_DIR / ".env"
     with open(env_file_path) as env_file:
-        lines = [line for line in env_file.read().splitlines()
-                 if not line.startswith("#") and "=" in line]
+        lines = [
+            line for line in env_file.read().splitlines()
+            if not line.startswith("#") and "=" in line
+        ]
         vars = dict(tuple(s.strip() for s in line.split("=")) for line in lines)
         os.environ.update(vars)
 
@@ -55,7 +57,7 @@ class URLChecker:
         self.cache_dir = SCRIPT_DIR / "cache"
     
     def first_check(self):
-        return self.previous_response is None
+        return not self.previous_response
 
     def response_changed(self):
         return self.previous_response and self.previous_response != self.last_response
