@@ -9,7 +9,6 @@ import requests
 import sys
 
 SCRIPT_DIR = Path(__file__).absolute().parent
-CACHE_DIR = SCRIPT_DIR / "cache"
 
 
 def load_env_vars():
@@ -21,56 +20,88 @@ def load_env_vars():
         os.environ.update(vars)
 
 
-def get_cache_filepath_from(url):
-    os.makedirs(CACHE_DIR, exist_ok=True)
-    return CACHE_DIR / hashlib.md5(url.encode("utf8")).hexdigest()[:10]
+class Messenger:
+    def __init__(self, telegram_token, telegram_chat_id):
+        self.telegram_token = telegram_token
+        self.telegram_chat_id = telegram_chat_id
+
+    def send_message(self, message, document_path=None):
+        data = { "chat_id": self.telegram_chat_id }
+
+        if document_path:
+            api_method = "sendDocument"
+            files = { "document": open(document_path, "rb") }
+            data["caption"] = message
+        else:
+            api_method = "sendMessage"
+            files = None
+            data["text"] = message
+
+        response = requests.post(
+            f"https://api.telegram.org/bot{self.telegram_token}/{api_method}",
+            data=data,
+            files=files,
+            timeout=10
+        )
+        response.raise_for_status()
+        print(response.json())
 
 
-def read_cache_response(url):
-    filepath = get_cache_filepath_from(url)
-    previous_response = None
-    if os.path.exists(filepath):
-        with open(filepath) as f:
-            previous_response = f.read()
-    return previous_response
+class URLChecker:
+    def __init__(self, url):
+        self.url = url
+        self.last_response = None
+        self.previous_response = None
+        self.cache_dir = SCRIPT_DIR / "cache"
+    
+    def first_check(self):
+        return self.previous_response is None
 
+    def response_changed(self):
+        return self.previous_response and self.previous_response != self.last_response
 
-def write_cache_response(url, response):
-    filepath = get_cache_filepath_from(url)
-    with open(filepath, "w") as f:
-        print(f"Dumping response in {filepath}")
-        f.write(response)
+    def _get_cache_filepath(self):
+        os.makedirs(self.cache_dir, exist_ok=True)
+        return self.cache_dir / hashlib.md5(self.url.encode("utf8")).hexdigest()[:10]
+    
+    def check(self):
+        print(f"Checking {url}")
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        response = response.text
 
+        self.previous_response = self.last_response
+        self.last_response = response
 
-def send_message(token, chat_id, message, document=None):
-    data = { "chat_id": chat_id }
+        if self.last_response != self.previous_response:
+            self._dump_response(response)
 
-    if document:
-        api_method = "sendDocument"
-        files = { "document": open(document, "rb") }
-        data["caption"] = message
-    else:
-        api_method = "sendMessage"
-        files = None
-        data["text"] = message
+    def load_cache(self):
+        filepath = self._get_cache_filepath()
+        if os.path.exists(filepath):
+            with open(filepath) as f:
+                self.last_response = f.read()
 
-    response = requests.post(
-        f"https://api.telegram.org/bot{token}/{api_method}",
-        data=data,
-        files=files,
-        timeout=10
-    )
-    response.raise_for_status()
-    print(response.json())
+    def _dump_response(self, response):
+        filepath = self._get_cache_filepath()
+        with open(filepath, "w") as f:
+            print(f"Dumping response in {filepath}")
+            f.write(response)
 
+    def dump_diff(self):
+        if not self.last_response or not self.previous_response:
+            return RuntimeError("Two checks are needed for a diff.")
+        
+        diff = HtmlDiff()
+        timestamp = strftime("%Y%m%d-%H%M%S")
+        filepath = f"{self._get_cache_filepath()}-diff-{timestamp}.html"
+        with open(filepath, "w") as diff_file:
+            diff_file.write(diff.make_file(
+                self.previous_response.splitlines(),
+                self.last_response.splitlines()
+            ))
 
-def create_diff(url, old_response, new_response):
-    diff = HtmlDiff()
-    timestamp = strftime("%Y%m%d-%H%M%S")
-    filepath = CACHE_DIR / f"{get_cache_filepath_from(url)}-diff-{timestamp}.html"
-    with open(filepath, "w") as diff_file:
-        diff_file.write(diff.make_file(old_response.splitlines(), new_response.splitlines()))
-    return filepath
+        return filepath
 
 
 if __name__ == "__main__":
@@ -79,19 +110,17 @@ if __name__ == "__main__":
     load_env_vars()
     telegram_token = os.environ["TELEGRAM_BOT_TOKEN"]
     telegram_chat_id = os.environ["TELEGRAM_CHAT_ID"]
+    messenger = Messenger(telegram_token, telegram_chat_id)
 
-    print(f"Checking {url}")
-    response = requests.get(url, timeout=10)
-    response.raise_for_status()
-    response = response.text
-    previous_response = read_cache_response(url)
+    checker = URLChecker(url)
+    checker.load_cache()
 
-    if previous_response != response:
-        write_cache_response(url, response)
-        if previous_response:
-            diff_path = create_diff(url, previous_response, response)
-            send_message(telegram_token, telegram_chat_id, "URL changed: {url}", diff_path)
-        else:
-            send_message(telegram_token, telegram_chat_id, f"Monitoring {url}")
+    checker.check()
+
+    if checker.first_check():
+        messenger.send_message(f"Monitoring {url}")
+    elif checker.response_changed():
+        diff_path = checker.dump_diff()
+        messenger.send_message(message=f"URL changed: {url}", document_path=diff_path)
     else:
         print(f"URL didn't change.")
