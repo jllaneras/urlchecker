@@ -4,9 +4,13 @@ from difflib import HtmlDiff
 from pathlib import Path
 from time import strftime
 import hashlib
+import logging
 import os
 import requests
 import sys
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s :: %(levelname)s :: %(message)s')
+logger = logging.getLogger(__name__)
 
 SCRIPT_DIR = Path(__file__).absolute().parent
 
@@ -46,7 +50,7 @@ class Messenger:
             timeout=10
         )
         response.raise_for_status()
-        print(response.json())
+        logger.info("Telegram message sent: {response.json()}")
 
 
 class URLChecker:
@@ -67,7 +71,7 @@ class URLChecker:
         return self.cache_dir / hashlib.md5(self.url.encode("utf8")).hexdigest()[:10]
     
     def check(self):
-        print(f"Checking {url}")
+        logger.info(f"Checking {url}")
         response = requests.get(url, timeout=10)
         response.raise_for_status()
         response = response.text
@@ -87,7 +91,7 @@ class URLChecker:
     def _dump_response(self, response):
         filepath = self._get_cache_filepath()
         with open(filepath, "w") as f:
-            print(f"Dumping response in {filepath}")
+            logger.info(f"Dumping response in {filepath}")
             f.write(response)
 
     def dump_diff(self):
@@ -125,4 +129,4 @@ if __name__ == "__main__":
         diff_path = checker.dump_diff()
         messenger.send_message(message=f"URL changed: {url}", document_path=diff_path)
     else:
-        print(f"URL didn't change.")
+        logger.info(f"URL didn't change.")
